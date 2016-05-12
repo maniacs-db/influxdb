@@ -1,7 +1,6 @@
 package influxql
 
 import (
-	"log"
 	"math"
 
 	"github.com/influxdata/influxdb/influxql/neldermead"
@@ -331,7 +330,8 @@ type FloatHoltWintersReducer struct {
 	phi float64
 
 	// Season period
-	m int
+	m        int
+	seasonal bool
 
 	// Horizon
 	h int
@@ -356,9 +356,9 @@ const (
 
 // NewFloatHoltWintersReducer creates a new FloatHoltWintersReducer.
 func NewFloatHoltWintersReducer(h, m int, includeAllData bool) *FloatHoltWintersReducer {
-	log.Println("NewFloatHoltWintersReducer", h, m, includeAllData)
+	seasonal := true
 	if m < 2 {
-		m = 1
+		seasonal = false
 	}
 	return &FloatHoltWintersReducer{
 		alpha:          defaultAlpha,
@@ -367,6 +367,7 @@ func NewFloatHoltWintersReducer(h, m int, includeAllData bool) *FloatHoltWinters
 		phi:            defaultPhi,
 		h:              h,
 		m:              m,
+		seasonal:       seasonal,
 		includeAllData: includeAllData,
 	}
 }
@@ -382,7 +383,7 @@ func (r *FloatHoltWintersReducer) AggregateFloat(p *FloatPoint) {
 }
 
 func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
-	if len(r.y) < r.m {
+	if l := len(r.y); l < 2 || r.seasonal && l < r.m {
 		return nil
 	}
 	// Smoothing parameters
@@ -396,19 +397,26 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 
 	// Starting guesses
 	l_0 := 0.0
-	for i := 0; i < m; i++ {
-		l_0 += (1 / float64(m)) * r.y[i]
+	if r.seasonal {
+		for i := 0; i < m; i++ {
+			l_0 += (1 / float64(m)) * r.y[i]
+		}
+	} else {
+		l_0 += alpha * r.y[0]
 	}
 
 	b_0 := 0.0
-	for i := 0; i < m; i++ {
-		b_0 += 1 / float64(m*m) * (r.y[m+i] - r.y[i])
+	if r.seasonal {
+		for i := 0; i < m && m+i < len(r.y); i++ {
+			b_0 += 1 / float64(m*m) * (r.y[m+i] - r.y[i])
+		}
+	} else {
+		b_0 = beta * (r.y[1] - r.y[0])
 	}
 
-	s := make([]float64, m)
-	if m == 1 {
-		s[0] = 1
-	} else {
+	var s []float64
+	if r.seasonal {
+		s = make([]float64, m)
 		for i := 0; i < m; i++ {
 			s[i] = r.y[i] / l_0
 		}
@@ -454,6 +462,8 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 			}
 		}
 	}
+	// Clear data set
+	r.y = r.y[0:0]
 	return points
 }
 
@@ -476,23 +486,29 @@ func (r *FloatHoltWintersReducer) forecast(h int, params []float64) []float64 {
 	s_t := 0.0
 
 	// seasonals is a ring buffer of past s_t values
-	seasonals := params[6:]
-	m := len(params[6:])
-	if m == 1 {
-		seasonals[0] = 1
+	var seasonals []float64
+	var m, so int
+	if r.seasonal {
+		seasonals = params[6:]
+		m = len(params[6:])
+		if m == 1 {
+			seasonals[0] = 1
+		}
+		// Season index offset
+		so = m - 1
 	}
-	// Season index offset
-	so := m - 1
 
 	forecasted := make([]float64, len(r.y)+h)
 	forecasted[0] = y_t
 	l := len(r.y)
-	var hm, stm, stmh int
+	var hm int
+	stm, stmh := 1.0, 1.0
 	for t := 1; t < l+h; t++ {
-		hm = (t - 1) % m
-		stm = (t - m + so) % m
-		stmh = (t - m + hm + so) % m
-
+		if r.seasonal {
+			hm = (t - 1) % m
+			stm = seasonals[(t-m+so)%m]
+			stmh = seasonals[(t-m+hm+so)%m]
+		}
 		y_t, l_t, b_t, s_t = r.next(
 			params[0],
 			params[1],
@@ -502,12 +518,12 @@ func (r *FloatHoltWintersReducer) forecast(h int, params []float64) []float64 {
 			y_t,
 			l_t,
 			b_t,
-			seasonals[stm],
-			seasonals[stmh],
+			stm,
+			stmh,
 		)
 		phi_h += math.Pow(phi, float64(t))
 
-		if m > 1 {
+		if r.seasonal {
 			so++
 			seasonals[(t+so)%m] = s_t
 		}
