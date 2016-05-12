@@ -243,6 +243,18 @@ func buildExprIterator(expr Expr, ic IteratorCreator, opt IteratorOptions, selec
 				return nil, err
 			}
 			return NewIntervalIterator(input, opt), nil
+		case "holt_winters":
+			input, err := buildExprIterator(expr.Args[0].(*VarRef), ic, opt, selector)
+			if err != nil {
+				return nil, err
+			}
+			h := expr.Args[1].(*IntegerLiteral)
+			m := expr.Args[2].(*IntegerLiteral)
+			includeAllData := false
+			if len(expr.Args) == 4 {
+				includeAllData = expr.Args[3].(*BooleanLiteral).Val
+			}
+			return newHoltWintersIterator(input, opt, int(h.Val), int(m.Val), includeAllData)
 		case "derivative", "non_negative_derivative", "difference", "moving_average", "elapsed":
 			if !opt.Interval.IsZero() {
 				if opt.Ascending {

@@ -1,5 +1,12 @@
 package influxql
 
+import (
+	"log"
+	"math"
+
+	"github.com/influxdata/influxdb/influxql/neldermead"
+)
+
 // FloatMeanReducer calculates the mean of the aggregated points.
 type FloatMeanReducer struct {
 	sum   float64
@@ -307,5 +314,249 @@ func (r *IntegerMovingAverageReducer) Emit() []FloatPoint {
 			Time:       r.time,
 			Aggregated: uint32(len(r.buf)),
 		},
+	}
+}
+
+// FloatHoltWintersReducer forecasts a series into the future.
+// This is done using the Holt-Winters damped method.
+//    1. Using the series the initial values are calculated using a SSE.
+//    2. The series is forecasted into the future using the iterative relations.
+type FloatHoltWintersReducer struct {
+	// Smoothing parameters
+	alpha,
+	beta,
+	gamma float64
+
+	// Dampening parameter
+	phi float64
+
+	// Season period
+	m int
+
+	// Horizon
+	h int
+
+	// Interval between points
+	interval int64
+	// Time of last point
+	last int64
+
+	// Whether to include all data or only future values
+	includeAllData bool
+
+	y []float64
+}
+
+const (
+	defaultAlpha = 0.5
+	defaultBeta  = 0.5
+	defaultGamma = 0.5
+	defaultPhi   = 0.5
+)
+
+// NewFloatHoltWintersReducer creates a new FloatHoltWintersReducer.
+func NewFloatHoltWintersReducer(h, m int, includeAllData bool) *FloatHoltWintersReducer {
+	log.Println("NewFloatHoltWintersReducer", h, m, includeAllData)
+	if m < 2 {
+		m = 1
+	}
+	return &FloatHoltWintersReducer{
+		alpha:          defaultAlpha,
+		beta:           defaultBeta,
+		gamma:          defaultGamma,
+		phi:            defaultPhi,
+		h:              h,
+		m:              m,
+		includeAllData: includeAllData,
+	}
+}
+
+// AggregateFloat aggregates a point into the reducer and updates the current window.
+func (r *FloatHoltWintersReducer) AggregateFloat(p *FloatPoint) {
+	//TODO: handle missing values based on expected interval between points
+	if r.last != 0 && r.interval == 0 {
+		r.interval = p.Time - r.last
+	}
+	r.last = p.Time
+	r.y = append(r.y, p.Value)
+}
+
+func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
+	if len(r.y) < r.m {
+		return nil
+	}
+	// Smoothing parameters
+	alpha, beta, gamma := r.alpha, r.beta, r.gamma
+
+	// Seasonality
+	m := r.m
+
+	// Dampening paramter
+	phi := r.phi
+
+	// Starting guesses
+	l_0 := 0.0
+	for i := 0; i < m; i++ {
+		l_0 += (1 / float64(m)) * r.y[i]
+	}
+
+	b_0 := 0.0
+	for i := 0; i < m; i++ {
+		b_0 += 1 / float64(m*m) * (r.y[m+i] - r.y[i])
+	}
+
+	s := make([]float64, m)
+	if m == 1 {
+		s[0] = 1
+	} else {
+		for i := 0; i < m; i++ {
+			s[i] = r.y[i] / l_0
+		}
+	}
+
+	parameters := make([]float64, 6+len(s))
+	parameters[0] = alpha
+	parameters[1] = beta
+	parameters[2] = gamma
+	parameters[3] = phi
+	parameters[4] = l_0
+	parameters[5] = b_0
+	o := len(parameters) - len(s)
+	for i := range s {
+		parameters[i+o] = s[i]
+	}
+
+	// Determine best fit for the varios parameters
+	opt := neldermead.New()
+	epsilon := 1e-4
+	_, params := opt.Optimize(r.sse, parameters, epsilon, 1, r.constrain)
+
+	// Forecast
+	forecasted := r.forecast(r.h, params)
+	var points []FloatPoint
+	if r.includeAllData {
+		points = make([]FloatPoint, len(forecasted))
+		for i, v := range forecasted {
+			t := r.last + r.interval*(int64(i)+1) - r.interval*int64(len(r.y))
+			points[i] = FloatPoint{
+				Value: v,
+				Time:  t,
+			}
+		}
+	} else {
+		points = make([]FloatPoint, r.h)
+		forecasted := r.forecast(r.h, params)
+		for i, v := range forecasted[len(r.y):] {
+			t := r.last + r.interval*(int64(i)+1)
+			points[i] = FloatPoint{
+				Value: v,
+				Time:  t,
+			}
+		}
+	}
+	return points
+}
+
+func (r *FloatHoltWintersReducer) next(alpha, beta, gamma, phi, phi_h, y_t, l_tp, b_tp, s_tm, s_tmh float64) (y_th, l_t, b_t, s_t float64) {
+	l_t = alpha*(y_t/s_tm) + (1-alpha)*(l_tp+phi*b_tp)
+	b_t = beta*(l_t-l_tp) + (1-beta)*phi*b_tp
+	s_t = gamma*(y_t/(l_tp+phi*b_tp)) + (1-gamma)*s_tm
+	y_th = (l_t + phi_h*b_t) * s_tmh
+	return
+}
+
+func (r *FloatHoltWintersReducer) forecast(h int, params []float64) []float64 {
+	y_t := r.y[0]
+
+	phi := params[3]
+	phi_h := phi
+
+	l_t := params[4]
+	b_t := params[5]
+	s_t := 0.0
+
+	// seasonals is a ring buffer of past s_t values
+	seasonals := params[6:]
+	m := len(params[6:])
+	if m == 1 {
+		seasonals[0] = 1
+	}
+	// Season index offset
+	so := m - 1
+
+	forecasted := make([]float64, len(r.y)+h)
+	forecasted[0] = y_t
+	l := len(r.y)
+	var hm, stm, stmh int
+	for t := 1; t < l+h; t++ {
+		hm = (t - 1) % m
+		stm = (t - m + so) % m
+		stmh = (t - m + hm + so) % m
+
+		y_t, l_t, b_t, s_t = r.next(
+			params[0],
+			params[1],
+			params[2],
+			phi,
+			phi_h,
+			y_t,
+			l_t,
+			b_t,
+			seasonals[stm],
+			seasonals[stmh],
+		)
+		phi_h += math.Pow(phi, float64(t))
+
+		if m > 1 {
+			so++
+			seasonals[(t+so)%m] = s_t
+		}
+
+		forecasted[t] = y_t
+	}
+	return forecasted
+}
+
+// Compute sum squared error given the parameters.
+func (r *FloatHoltWintersReducer) sse(params []float64) float64 {
+	sse := 0.0
+	forecasted := r.forecast(0, params)
+	for i := range forecasted {
+		// Compute error
+		diff := forecasted[i] - r.y[i]
+		sse += diff * diff
+	}
+	return sse
+}
+
+// Constrain alpha, beta, gamma, phi in the range [0, 1]
+func (r *FloatHoltWintersReducer) constrain(x []float64) {
+	// alpha
+	if x[0] > 1 {
+		x[0] = 1
+	}
+	if x[0] < 0 {
+		x[0] = 0
+	}
+	// beta
+	if x[1] > 1 {
+		x[1] = 1
+	}
+	if x[1] < 0 {
+		x[1] = 0
+	}
+	// gamma
+	if x[2] > 1 {
+		x[2] = 1
+	}
+	if x[2] < 0 {
+		x[2] = 0
+	}
+	// phi
+	if x[3] > 1 {
+		x[3] = 1
+	}
+	if x[3] < 0 {
+		x[3] = 0
 	}
 }
