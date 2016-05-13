@@ -14,6 +14,7 @@
 - [#6654](https://github.com/influxdata/influxdb/pull/6654): Add new HTTP statistics to monitoring
 
 - [#6664](https://github.com/influxdata/influxdb/pull/6664): Adds monitoring statistic for on-disk shard size.
+- [#6621](https://github.com/influxdata/influxdb/pull/6621): Add Holt-Winter forecasting function.
 
 ### Bugfixes
 
