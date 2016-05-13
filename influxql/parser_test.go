@@ -328,6 +328,147 @@ func TestParser_ParseStatement(t *testing.T) {
 				},
 			},
 		},
+		// holt_winters
+		{
+			s: `SELECT holt_winters(field1, 3, 1) FROM myseries;`,
+			stmt: &influxql.SelectStatement{
+				IsRawQuery: false,
+				Fields: []*influxql.Field{
+					{Expr: &influxql.Call{Name: "holt_winters", Args: []influxql.Expr{&influxql.VarRef{Val: "field1"}, &influxql.IntegerLiteral{Val: 3}, &influxql.IntegerLiteral{Val: 1}}}},
+				},
+				Sources: []influxql.Source{&influxql.Measurement{Name: "myseries"}},
+			},
+		},
+
+		{
+			s: `SELECT holt_winters(field1, 3, 1, true) FROM myseries;`,
+			stmt: &influxql.SelectStatement{
+				IsRawQuery: false,
+				Fields: []*influxql.Field{
+					{Expr: &influxql.Call{
+						Name: "holt_winters",
+						Args: []influxql.Expr{
+							&influxql.VarRef{Val: "field1"},
+							&influxql.IntegerLiteral{Val: 3},
+							&influxql.IntegerLiteral{Val: 1},
+							&influxql.BooleanLiteral{Val: true},
+						}}},
+				},
+				Sources: []influxql.Source{&influxql.Measurement{Name: "myseries"}},
+			},
+		},
+		{
+			s: fmt.Sprintf(`SELECT holt_winters(field1, 3, 1) FROM myseries WHERE time < '%s' GROUP BY time(10d);`, now.UTC().Format(time.RFC3339Nano)),
+			stmt: &influxql.SelectStatement{
+				IsRawQuery: false,
+				Fields: []*influxql.Field{
+					{Expr: &influxql.Call{
+						Name: "holt_winters",
+						Args: []influxql.Expr{
+							&influxql.VarRef{Val: "field1"},
+							&influxql.IntegerLiteral{Val: 3},
+							&influxql.IntegerLiteral{Val: 1},
+						}}},
+				},
+				Dimensions: []*influxql.Dimension{
+					{
+						Expr: &influxql.Call{
+							Name: "time",
+							Args: []influxql.Expr{
+								&influxql.DurationLiteral{Val: 10 * 24 * time.Hour},
+							},
+						},
+					},
+				},
+				Sources: []influxql.Source{&influxql.Measurement{Name: "myseries"}},
+				Condition: &influxql.BinaryExpr{
+					Op:  influxql.LT,
+					LHS: &influxql.VarRef{Val: "time"},
+					RHS: &influxql.TimeLiteral{Val: now.UTC()},
+				},
+			},
+		},
+
+		{
+			s: fmt.Sprintf(`SELECT holt_winters(max(field1), 4, 5) FROM myseries WHERE time > '%s' GROUP BY time(1m)`, now.UTC().Format(time.RFC3339Nano)),
+			stmt: &influxql.SelectStatement{
+				IsRawQuery: false,
+				Fields: []*influxql.Field{
+					{
+						Expr: &influxql.Call{
+							Name: "holt_winters",
+							Args: []influxql.Expr{
+								&influxql.Call{
+									Name: "max",
+									Args: []influxql.Expr{
+										&influxql.VarRef{Val: "field1"},
+									},
+								},
+								&influxql.IntegerLiteral{Val: 4},
+								&influxql.IntegerLiteral{Val: 5},
+							},
+						},
+					},
+				},
+				Sources: []influxql.Source{&influxql.Measurement{Name: "myseries"}},
+				Dimensions: []*influxql.Dimension{
+					{
+						Expr: &influxql.Call{
+							Name: "time",
+							Args: []influxql.Expr{
+								&influxql.DurationLiteral{Val: time.Minute},
+							},
+						},
+					},
+				},
+				Condition: &influxql.BinaryExpr{
+					Op:  influxql.GT,
+					LHS: &influxql.VarRef{Val: "time"},
+					RHS: &influxql.TimeLiteral{Val: now.UTC()},
+				},
+			},
+		},
+
+		{
+			s: fmt.Sprintf(`SELECT holt_winters(max(field1), 4, 5, false) FROM myseries WHERE time > '%s' GROUP BY time(1m)`, now.UTC().Format(time.RFC3339Nano)),
+			stmt: &influxql.SelectStatement{
+				IsRawQuery: false,
+				Fields: []*influxql.Field{
+					{
+						Expr: &influxql.Call{
+							Name: "holt_winters",
+							Args: []influxql.Expr{
+								&influxql.Call{
+									Name: "max",
+									Args: []influxql.Expr{
+										&influxql.VarRef{Val: "field1"},
+									},
+								},
+								&influxql.IntegerLiteral{Val: 4},
+								&influxql.IntegerLiteral{Val: 5},
+								&influxql.BooleanLiteral{Val: false},
+							},
+						},
+					},
+				},
+				Sources: []influxql.Source{&influxql.Measurement{Name: "myseries"}},
+				Dimensions: []*influxql.Dimension{
+					{
+						Expr: &influxql.Call{
+							Name: "time",
+							Args: []influxql.Expr{
+								&influxql.DurationLiteral{Val: time.Minute},
+							},
+						},
+					},
+				},
+				Condition: &influxql.BinaryExpr{
+					Op:  influxql.GT,
+					LHS: &influxql.VarRef{Val: "time"},
+					RHS: &influxql.TimeLiteral{Val: now.UTC()},
+				},
+			},
+		},
 
 		// SELECT statement (lowercase)
 		{

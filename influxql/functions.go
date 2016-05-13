@@ -338,13 +338,12 @@ type FloatHoltWintersReducer struct {
 
 	// Interval between points
 	interval int64
-	// Time of last point
-	last int64
 
 	// Whether to include all data or only future values
 	includeAllData bool
 
-	y []float64
+	y      []float64
+	points []FloatPoint
 }
 
 const (
@@ -374,12 +373,14 @@ func NewFloatHoltWintersReducer(h, m int, includeAllData bool) *FloatHoltWinters
 
 // AggregateFloat aggregates a point into the reducer and updates the current window.
 func (r *FloatHoltWintersReducer) AggregateFloat(p *FloatPoint) {
-	//TODO: handle missing values based on expected interval between points
-	if r.last != 0 && r.interval == 0 {
-		r.interval = p.Time - r.last
+	// Keep track of the smallest interval
+	if l := len(r.points); l > 1 {
+		interval := p.Time - r.points[l-1].Time
+		if r.interval == 0 || interval < r.interval {
+			r.interval = interval
+		}
 	}
-	r.last = p.Time
-	r.y = append(r.y, p.Value)
+	r.points = append(r.points, *p)
 }
 
 // AggregateInteger aggregates a point into the reducer and updates the current window.
@@ -388,9 +389,26 @@ func (r *FloatHoltWintersReducer) AggregateInteger(p *IntegerPoint) {
 }
 
 func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
-	if l := len(r.y); l < 2 || r.seasonal && l < r.m {
+	if l := len(r.points); l < 2 || r.seasonal && l < r.m {
 		return nil
 	}
+	// First fill in r.y with values and NaNs for missing values
+	start, stop := r.points[0].Time, r.points[len(r.points)-1].Time
+	count := (stop - start) / r.interval
+	r.y = make([]float64, 1, count)
+	r.y[0] = r.points[0].Value
+	t := r.points[0].Time
+	for _, p := range r.points[1:] {
+		t += r.interval
+		// Add any missing values before the next point
+		for p.Time != t {
+			// Add in a NaN so we can skip it later.
+			r.y = append(r.y, math.NaN())
+			t += r.interval
+		}
+		r.y = append(r.y, p.Value)
+	}
+
 	// Smoothing parameters
 	alpha, beta, gamma := r.alpha, r.beta, r.gamma
 
@@ -401,10 +419,16 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 	phi := r.phi
 
 	// Starting guesses
+	// NOTE: Since these values are guesses
+	// in the cases where we were missing data can just skip
+	// the value and call it good.
+
 	l_0 := 0.0
 	if r.seasonal {
 		for i := 0; i < m; i++ {
-			l_0 += (1 / float64(m)) * r.y[i]
+			if !math.IsNaN(r.y[i]) {
+				l_0 += (1 / float64(m)) * r.y[i]
+			}
 		}
 	} else {
 		l_0 += alpha * r.y[0]
@@ -413,17 +437,25 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 	b_0 := 0.0
 	if r.seasonal {
 		for i := 0; i < m && m+i < len(r.y); i++ {
-			b_0 += 1 / float64(m*m) * (r.y[m+i] - r.y[i])
+			if !math.IsNaN(r.y[i]) && !math.IsNaN(r.y[m+i]) {
+				b_0 += 1 / float64(m*m) * (r.y[m+i] - r.y[i])
+			}
 		}
 	} else {
-		b_0 = beta * (r.y[1] - r.y[0])
+		if !math.IsNaN(r.y[1]) {
+			b_0 = beta * (r.y[1] - r.y[0])
+		}
 	}
 
 	var s []float64
 	if r.seasonal {
 		s = make([]float64, m)
 		for i := 0; i < m; i++ {
-			s[i] = r.y[i] / l_0
+			if !math.IsNaN(r.y[i]) {
+				s[i] = r.y[i] / l_0
+			} else {
+				s[i] = 0
+			}
 		}
 	}
 
@@ -448,19 +480,21 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 	forecasted := r.forecast(r.h, params)
 	var points []FloatPoint
 	if r.includeAllData {
+		start := r.points[0].Time
 		points = make([]FloatPoint, len(forecasted))
 		for i, v := range forecasted {
-			t := r.last + r.interval*(int64(i)+1) - r.interval*int64(len(r.y))
+			t := start + r.interval*(int64(i))
 			points[i] = FloatPoint{
 				Value: v,
 				Time:  t,
 			}
 		}
 	} else {
+		last := r.points[len(r.points)-1].Time
 		points = make([]FloatPoint, r.h)
 		forecasted := r.forecast(r.h, params)
 		for i, v := range forecasted[len(r.y):] {
-			t := r.last + r.interval*(int64(i)+1)
+			t := last + r.interval*(int64(i)+1)
 			points[i] = FloatPoint{
 				Value: v,
 				Time:  t,
@@ -543,9 +577,12 @@ func (r *FloatHoltWintersReducer) sse(params []float64) float64 {
 	sse := 0.0
 	forecasted := r.forecast(0, params)
 	for i := range forecasted {
-		// Compute error
-		diff := forecasted[i] - r.y[i]
-		sse += diff * diff
+		// Skip missing values since we cannot use them to compute an error.
+		if !math.IsNaN(r.y[i]) {
+			// Compute error
+			diff := forecasted[i] - r.y[i]
+			sse += diff * diff
+		}
 	}
 	return sse
 }

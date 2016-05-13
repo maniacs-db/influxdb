@@ -1608,9 +1608,6 @@ func (s *SelectStatement) validateAggregates(tr targetRequirement) error {
 				if min, max, got := 3, 4, len(expr.Args); got > max || got < min {
 					return fmt.Errorf("invalid number of arguments for %s, expected at least %d but no more than %d, got %d", expr.Name, min, max, got)
 				}
-				if _, ok := expr.Args[0].(*VarRef); !ok {
-					return fmt.Errorf("expected field argument as first arg in %s()", expr.Name)
-				}
 				for i, arg := range expr.Args[1:3] {
 					if _, ok := arg.(*IntegerLiteral); !ok {
 						return fmt.Errorf("expected integer argument as %dth arg in %s()", i+1, expr.Name)

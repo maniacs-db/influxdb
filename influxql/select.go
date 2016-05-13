@@ -243,19 +243,7 @@ func buildExprIterator(expr Expr, ic IteratorCreator, opt IteratorOptions, selec
 				return nil, err
 			}
 			return NewIntervalIterator(input, opt), nil
-		case "holt_winters":
-			input, err := buildExprIterator(expr.Args[0].(*VarRef), ic, opt, selector)
-			if err != nil {
-				return nil, err
-			}
-			h := expr.Args[1].(*IntegerLiteral)
-			m := expr.Args[2].(*IntegerLiteral)
-			includeAllData := false
-			if len(expr.Args) == 4 {
-				includeAllData = expr.Args[3].(*BooleanLiteral).Val
-			}
-			return newHoltWintersIterator(input, opt, int(h.Val), int(m.Val), includeAllData)
-		case "derivative", "non_negative_derivative", "difference", "moving_average", "elapsed":
+		case "derivative", "non_negative_derivative", "difference", "moving_average", "elapsed", "holt_winters":
 			if !opt.Interval.IsZero() {
 				if opt.Ascending {
 					opt.StartTime -= int64(opt.Interval.Duration)
@@ -289,6 +277,14 @@ func buildExprIterator(expr Expr, ic IteratorCreator, opt IteratorOptions, selec
 					}
 				}
 				return newMovingAverageIterator(input, int(n.Val), opt)
+			case "holt_winters":
+				h := expr.Args[1].(*IntegerLiteral)
+				m := expr.Args[2].(*IntegerLiteral)
+				includeAllData := false
+				if len(expr.Args) == 4 {
+					includeAllData = expr.Args[3].(*BooleanLiteral).Val
+				}
+				return newHoltWintersIterator(input, opt, int(h.Val), int(m.Val), includeAllData)
 			}
 			panic(fmt.Sprintf("invalid series aggregate function: %s", expr.Name))
 		default:
