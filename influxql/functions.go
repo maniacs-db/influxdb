@@ -382,6 +382,11 @@ func (r *FloatHoltWintersReducer) AggregateFloat(p *FloatPoint) {
 	r.y = append(r.y, p.Value)
 }
 
+// AggregateInteger aggregates a point into the reducer and updates the current window.
+func (r *FloatHoltWintersReducer) AggregateInteger(p *IntegerPoint) {
+	r.AggregateFloat(&FloatPoint{Time: p.Time, Value: float64(p.Value)})
+}
+
 func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 	if l := len(r.y); l < 2 || r.seasonal && l < r.m {
 		return nil

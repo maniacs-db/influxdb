@@ -1,6 +1,7 @@
 package influxql_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/influxdata/influxdb/influxql"
@@ -63,10 +64,33 @@ func TestHoltWinters_AusTourists(t *testing.T) {
 	for _, p := range austourists {
 		hw.AggregateFloat(&p)
 	}
-
 	points := hw.Emit()
-	t.Log(points)
 
+	forecasted := []influxql.FloatPoint{
+		{Time: 49, Value: 57.01368875810684},
+		{Time: 50, Value: 40.190037686564295},
+		{Time: 51, Value: 54.90600903429195},
+		{Time: 52, Value: 52.61130714223962},
+		{Time: 53, Value: 59.85400578890833},
+		{Time: 54, Value: 42.21766711269367},
+		{Time: 55, Value: 57.65856066704675},
+		{Time: 56, Value: 55.26293832246274},
+		{Time: 57, Value: 62.83676840257498},
+		{Time: 58, Value: 44.34255373999999},
+	}
+
+	if exp, got := len(forecasted), len(points); exp != got {
+		t.Fatalf("unexpected number of points emitted: got %d exp %d", got, exp)
+	}
+
+	for i := range forecasted {
+		if exp, got := forecasted[i].Time, points[i].Time; got != exp {
+			t.Errorf("unexpected time on points[%d] got %v exp %v", i, got, exp)
+		}
+		if exp, got := forecasted[i].Value, points[i].Value; math.Abs(got-exp) > 1e-5 {
+			t.Errorf("unexpected value on points[%d] got %v exp %v", i, got, exp)
+		}
+	}
 }
 
 func TestHoltWinters_USPopulation(t *testing.T) {
@@ -95,7 +119,49 @@ func TestHoltWinters_USPopulation(t *testing.T) {
 	for _, p := range series {
 		hw.AggregateFloat(&p)
 	}
-
 	points := hw.Emit()
-	t.Log(points)
+
+	forecasted := []influxql.FloatPoint{
+		{Time: 1, Value: 3.93},
+		{Time: 2, Value: 4.666229883011407},
+		{Time: 3, Value: 7.582703219729101},
+		{Time: 4, Value: 11.38750857910578},
+		{Time: 5, Value: 16.061458362866013},
+		{Time: 6, Value: 21.60339677828295},
+		{Time: 7, Value: 28.028797969563485},
+		{Time: 8, Value: 35.36898516917276},
+		{Time: 9, Value: 43.67088460608491},
+		{Time: 10, Value: 52.99725850596854},
+		{Time: 11, Value: 63.42738609386119},
+		{Time: 12, Value: 75.05818203585376},
+		{Time: 13, Value: 88.00575972021298},
+		{Time: 14, Value: 102.40746333932526},
+		{Time: 15, Value: 118.42440883475055},
+		{Time: 16, Value: 136.24459021744897},
+		{Time: 17, Value: 156.08662531118478},
+		{Time: 18, Value: 178.20423430441988},
+		{Time: 19, Value: 202.89156636951475},
+		{Time: 20, Value: 230.48951480987003},
+		{Time: 21, Value: 261.3931906116184},
+		{Time: 22, Value: 296.0607589238543},
+		{Time: 23, Value: 335.0238840597938},
+		{Time: 24, Value: 378.900077509081},
+		{Time: 25, Value: 428.40730185977736},
+		{Time: 26, Value: 484.38125346495343},
+		{Time: 27, Value: 547.7958305836579},
+		{Time: 28, Value: 619.7873945146928},
+		{Time: 29, Value: 701.6835524758332},
+	}
+
+	if exp, got := len(forecasted), len(points); exp != got {
+		t.Fatalf("unexpected number of points emitted: got %d exp %d", got, exp)
+	}
+	for i := range forecasted {
+		if exp, got := forecasted[i].Time, points[i].Time; got != exp {
+			t.Errorf("unexpected time on points[%d] got %v exp %v", i, got, exp)
+		}
+		if exp, got := forecasted[i].Value, points[i].Value; math.Abs(got-exp) > 1e-5 {
+			t.Errorf("unexpected value on points[%d] got %v exp %v", i, got, exp)
+		}
+	}
 }

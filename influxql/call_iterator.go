@@ -1068,6 +1068,12 @@ func newHoltWintersIterator(input Iterator, opt IteratorOptions, h, m int, inclu
 			return fn, fn
 		}
 		return &floatReduceFloatIterator{input: newBufFloatIterator(input), opt: opt, create: createFn}, nil
+	case IntegerIterator:
+		createFn := func() (IntegerPointAggregator, FloatPointEmitter) {
+			fn := NewFloatHoltWintersReducer(h, m, includeAllData)
+			return fn, fn
+		}
+		return &integerReduceFloatIterator{input: newBufIntegerIterator(input), opt: opt, create: createFn}, nil
 	default:
 		return nil, fmt.Errorf("unsupported elapsed iterator type: %T", input)
 	}

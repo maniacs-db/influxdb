@@ -2273,6 +2273,60 @@ func TestSelect_MovingAverage_Integer(t *testing.T) {
 	}
 }
 
+func TestSelect_HoltWinters_Float(t *testing.T) {
+	var ic IteratorCreator
+	ic.CreateIteratorFn = func(opt influxql.IteratorOptions) (influxql.Iterator, error) {
+		return &FloatIterator{Points: []influxql.FloatPoint{
+			{Name: "cpu", Time: 0 * Second, Value: 5},
+			{Name: "cpu", Time: 4 * Second, Value: 10},
+			{Name: "cpu", Time: 8 * Second, Value: 6},
+			{Name: "cpu", Time: 12 * Second, Value: 11},
+		}}, nil
+	}
+
+	// Execute selection.
+	itrs, err := influxql.Select(MustParseSelectStatement(`SELECT holt_winters(value, 2, 2) FROM cpu WHERE time >= '1970-01-01T00:00:00Z' AND time < '1970-01-01T00:00:16Z'`), &ic, nil)
+	if err != nil {
+		t.Fatal(err)
+	} else if a, err := Iterators(itrs).ReadAll(); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	} else if !deep.Equal(a, [][]influxql.Point{
+		{&influxql.FloatPoint{Name: "cpu", Time: 16 * Second, Value: 6.65114462700177}},
+		{&influxql.FloatPoint{Name: "cpu", Time: 20 * Second, Value: 10.98709300119875}},
+	}) {
+		t.Fatalf("unexpected points: %s", spew.Sdump(a))
+	}
+}
+
+func TestSelect_HoltWinters_Integer(t *testing.T) {
+	var ic IteratorCreator
+	ic.CreateIteratorFn = func(opt influxql.IteratorOptions) (influxql.Iterator, error) {
+		return &IntegerIterator{Points: []influxql.IntegerPoint{
+			{Name: "cpu", Time: 0 * Second, Value: 5},
+			{Name: "cpu", Time: 4 * Second, Value: 10},
+			{Name: "cpu", Time: 8 * Second, Value: 6},
+			{Name: "cpu", Time: 12 * Second, Value: 11},
+		}}, nil
+	}
+
+	// Execute selection.
+	itrs, err := influxql.Select(MustParseSelectStatement(`SELECT holt_winters(value, 2, 2, true) FROM cpu WHERE time >= '1970-01-01T00:00:00Z' AND time < '1970-01-01T00:00:16Z'`), &ic, nil)
+	if err != nil {
+		t.Fatal(err)
+	} else if a, err := Iterators(itrs).ReadAll(); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	} else if !deep.Equal(a, [][]influxql.Point{
+		{&influxql.FloatPoint{Name: "cpu", Time: 0 * Second, Value: 5}},
+		{&influxql.FloatPoint{Name: "cpu", Time: 4 * Second, Value: 10.0003982704228}},
+		{&influxql.FloatPoint{Name: "cpu", Time: 8 * Second, Value: 6.000402304344481}},
+		{&influxql.FloatPoint{Name: "cpu", Time: 12 * Second, Value: 10.988537475385646}},
+		{&influxql.FloatPoint{Name: "cpu", Time: 16 * Second, Value: 6.65114462700177}},
+		{&influxql.FloatPoint{Name: "cpu", Time: 20 * Second, Value: 10.98709300119875}},
+	}) {
+		t.Fatalf("unexpected points: %s", spew.Sdump(a))
+	}
+}
+
 func TestSelect_UnsupportedCall(t *testing.T) {
 	var ic IteratorCreator
 	ic.CreateIteratorFn = func(opt influxql.IteratorOptions) (influxql.Iterator, error) {
