@@ -12,7 +12,7 @@ func almostEqual(got, exp float64) bool {
 }
 
 func TestHoltWinters_AusTourists(t *testing.T) {
-	hw := influxql.NewFloatHoltWintersReducer(10, 4, false)
+	hw := influxql.NewFloatHoltWintersReducer(10, 4, false, 1)
 	// Dataset from http://www.inside-r.org/packages/cran/fpp/docs/austourists
 	austourists := []influxql.FloatPoint{
 		{Time: 1, Value: 30.052513},
@@ -98,7 +98,7 @@ func TestHoltWinters_AusTourists(t *testing.T) {
 }
 
 func TestHoltWinters_AusTourists_Missing(t *testing.T) {
-	hw := influxql.NewFloatHoltWintersReducer(10, 4, false)
+	hw := influxql.NewFloatHoltWintersReducer(10, 4, false, 1)
 	// Dataset from http://www.inside-r.org/packages/cran/fpp/docs/austourists
 	austourists := []influxql.FloatPoint{
 		{Time: 1, Value: 30.052513},
@@ -148,7 +148,6 @@ func TestHoltWinters_AusTourists_Missing(t *testing.T) {
 		hw.AggregateFloat(&p)
 	}
 	points := hw.Emit()
-	t.Log(points)
 
 	forecasted := []influxql.FloatPoint{
 		{Time: 49, Value: 54.39825435294697},
@@ -199,7 +198,7 @@ func TestHoltWinters_USPopulation(t *testing.T) {
 		{Time: 18, Value: 179.30},
 		{Time: 19, Value: 203.20},
 	}
-	hw := influxql.NewFloatHoltWintersReducer(10, 0, true)
+	hw := influxql.NewFloatHoltWintersReducer(10, 0, true, 1)
 	for _, p := range series {
 		hw.AggregateFloat(&p)
 	}
@@ -269,7 +268,7 @@ func TestHoltWinters_USPopulation_Missing(t *testing.T) {
 		{Time: 17, Value: 151.30},
 		{Time: 19, Value: 203.20},
 	}
-	hw := influxql.NewFloatHoltWintersReducer(10, 0, true)
+	hw := influxql.NewFloatHoltWintersReducer(10, 0, true, 1)
 	for _, p := range series {
 		hw.AggregateFloat(&p)
 	}

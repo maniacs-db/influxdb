@@ -243,7 +243,31 @@ func buildExprIterator(expr Expr, ic IteratorCreator, opt IteratorOptions, selec
 				return nil, err
 			}
 			return NewIntervalIterator(input, opt), nil
-		case "derivative", "non_negative_derivative", "difference", "moving_average", "elapsed", "holt_winters":
+		case "holt_winters", "holt_winters_with_fit":
+			input, err := buildExprIterator(expr.Args[0], ic, opt, selector)
+			if err != nil {
+				return nil, err
+			}
+			h := expr.Args[1].(*IntegerLiteral)
+			m := expr.Args[2].(*IntegerLiteral)
+			includeAllData := "holt_winters_with_fit" == expr.Name
+			var interval time.Duration
+			// Use the interval on the elapsed() call, if specified.
+			if len(expr.Args) == 4 {
+				interval = expr.Args[3].(*DurationLiteral).Val
+			} else if len(expr.Args) == 3 {
+				interval = opt.Interval.Duration
+				// Redifine interval to be unbounded to capture all aggregate results
+				opt.StartTime = MinTime
+				opt.EndTime = MaxTime
+				opt.Interval = Interval{}
+			}
+			if interval == 0 {
+				return nil, fmt.Errorf("must specify interval as 4th arg to %s if not grouping by aggregate function.", expr.Name)
+			}
+
+			return newHoltWintersIterator(input, opt, int(h.Val), int(m.Val), includeAllData, interval)
+		case "derivative", "non_negative_derivative", "difference", "moving_average", "elapsed":
 			if !opt.Interval.IsZero() {
 				if opt.Ascending {
 					opt.StartTime -= int64(opt.Interval.Duration)
@@ -277,14 +301,6 @@ func buildExprIterator(expr Expr, ic IteratorCreator, opt IteratorOptions, selec
 					}
 				}
 				return newMovingAverageIterator(input, int(n.Val), opt)
-			case "holt_winters":
-				h := expr.Args[1].(*IntegerLiteral)
-				m := expr.Args[2].(*IntegerLiteral)
-				includeAllData := false
-				if len(expr.Args) == 4 {
-					includeAllData = expr.Args[3].(*BooleanLiteral).Val
-				}
-				return newHoltWintersIterator(input, opt, int(h.Val), int(m.Val), includeAllData)
 			}
 			panic(fmt.Sprintf("invalid series aggregate function: %s", expr.Name))
 		default:

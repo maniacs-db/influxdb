@@ -2,6 +2,7 @@ package influxql
 
 import (
 	"math"
+	"time"
 
 	"github.com/influxdata/influxdb/influxql/neldermead"
 )
@@ -354,7 +355,7 @@ const (
 )
 
 // NewFloatHoltWintersReducer creates a new FloatHoltWintersReducer.
-func NewFloatHoltWintersReducer(h, m int, includeAllData bool) *FloatHoltWintersReducer {
+func NewFloatHoltWintersReducer(h, m int, includeAllData bool, interval time.Duration) *FloatHoltWintersReducer {
 	seasonal := true
 	if m < 2 {
 		seasonal = false
@@ -368,24 +369,25 @@ func NewFloatHoltWintersReducer(h, m int, includeAllData bool) *FloatHoltWinters
 		m:              m,
 		seasonal:       seasonal,
 		includeAllData: includeAllData,
+		interval:       int64(interval),
 	}
+}
+
+func (r *FloatHoltWintersReducer) aggregate(time int64, value float64) {
+	r.points = append(r.points, FloatPoint{
+		Time:  time,
+		Value: value,
+	})
 }
 
 // AggregateFloat aggregates a point into the reducer and updates the current window.
 func (r *FloatHoltWintersReducer) AggregateFloat(p *FloatPoint) {
-	// Keep track of the smallest interval
-	if l := len(r.points); l > 1 {
-		interval := p.Time - r.points[l-1].Time
-		if r.interval == 0 || interval < r.interval {
-			r.interval = interval
-		}
-	}
-	r.points = append(r.points, *p)
+	r.aggregate(p.Time, p.Value)
 }
 
 // AggregateInteger aggregates a point into the reducer and updates the current window.
 func (r *FloatHoltWintersReducer) AggregateInteger(p *IntegerPoint) {
-	r.AggregateFloat(&FloatPoint{Time: p.Time, Value: float64(p.Value)})
+	r.aggregate(p.Time, float64(p.Value))
 }
 
 func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
