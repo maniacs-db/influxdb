@@ -250,21 +250,14 @@ func buildExprIterator(expr Expr, ic IteratorCreator, opt IteratorOptions, selec
 			}
 			h := expr.Args[1].(*IntegerLiteral)
 			m := expr.Args[2].(*IntegerLiteral)
+
 			includeAllData := "holt_winters_with_fit" == expr.Name
-			var interval time.Duration
-			// Use the interval on the elapsed() call, if specified.
-			if len(expr.Args) == 4 {
-				interval = expr.Args[3].(*DurationLiteral).Val
-			} else if len(expr.Args) == 3 {
-				interval = opt.Interval.Duration
-				// Redifine interval to be unbounded to capture all aggregate results
-				opt.StartTime = MinTime
-				opt.EndTime = MaxTime
-				opt.Interval = Interval{}
-			}
-			if interval == 0 {
-				return nil, fmt.Errorf("must specify interval as 4th arg to %s if not grouping by aggregate function.", expr.Name)
-			}
+
+			interval := opt.Interval.Duration
+			// Redifine interval to be unbounded to capture all aggregate results
+			opt.StartTime = MinTime
+			opt.EndTime = MaxTime
+			opt.Interval = Interval{}
 
 			return newHoltWintersIterator(input, opt, int(h.Val), int(m.Val), includeAllData, interval)
 		case "derivative", "non_negative_derivative", "difference", "moving_average", "elapsed":

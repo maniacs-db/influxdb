@@ -1605,13 +1605,8 @@ func (s *SelectStatement) validateAggregates(tr targetRequirement) error {
 					return err
 				}
 			case "holt_winters", "holt_winters_with_fit":
-				if min, max, got := 3, 4, len(expr.Args); got > max || got < min {
-					return fmt.Errorf("invalid number of arguments for %s, expected at least %d but no more than %d, got %d", expr.Name, min, max, got)
-				}
-				for i, arg := range expr.Args[1:3] {
-					if _, ok := arg.(*IntegerLiteral); !ok {
-						return fmt.Errorf("expected integer argument as %dth arg in %s()", i+1, expr.Name)
-					}
+				if exp, got := 3, len(expr.Args); got != exp {
+					return fmt.Errorf("invalid number of arguments for %s, expected %d, got %d", expr.Name, exp, got)
 				}
 				// Validate that if they have grouping by time, they need a sub-call like min/max, etc.
 				groupByInterval, err := s.GroupByInterval()
@@ -1621,14 +1616,12 @@ func (s *SelectStatement) validateAggregates(tr targetRequirement) error {
 
 				if _, ok := expr.Args[0].(*Call); ok && groupByInterval == 0 {
 					return fmt.Errorf("%s aggregate requires a GROUP BY interval", expr.Name)
-				} else if ok && len(expr.Args) == 4 && groupByInterval > 0 {
-					return fmt.Errorf("must not pass interval to %s as 4th arg when performing group by on aggregate", expr.Name)
-				} else if !ok && len(expr.Args) != 4 {
-					return fmt.Errorf("must pass interval to %s as 4th arg when not performing group by on aggregate", expr.Name)
+				} else if !ok {
+					return fmt.Errorf("must use aggregate function with %s", expr.Name)
 				}
-				if len(expr.Args) == 4 {
-					if _, ok := expr.Args[3].(*DurationLiteral); !ok {
-						return fmt.Errorf("expected duration argument as 4th arg in %s()", expr.Name)
+				for i, arg := range expr.Args[1:3] {
+					if _, ok := arg.(*IntegerLiteral); !ok {
+						return fmt.Errorf("expected integer argument as %dth arg in %s", i+1, expr.Name)
 					}
 				}
 			default:

@@ -390,20 +390,28 @@ func (r *FloatHoltWintersReducer) AggregateInteger(p *IntegerPoint) {
 	r.aggregate(p.Time, float64(p.Value))
 }
 
+func (r *FloatHoltWintersReducer) roundTime(t int64) int64 {
+	return r.interval * ((t + r.interval/2) / r.interval)
+}
+
 func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 	if l := len(r.points); l < 2 || r.seasonal && l < r.m {
 		return nil
 	}
 	// First fill in r.y with values and NaNs for missing values
-	start, stop := r.points[0].Time, r.points[len(r.points)-1].Time
+	start, stop := r.roundTime(r.points[0].Time), r.roundTime(r.points[len(r.points)-1].Time)
 	count := (stop - start) / r.interval
 	r.y = make([]float64, 1, count)
 	r.y[0] = r.points[0].Value
-	t := r.points[0].Time
+	t := r.roundTime(r.points[0].Time)
 	for _, p := range r.points[1:] {
+		rounded := r.roundTime(p.Time)
+		if rounded <= t {
+			continue
+		}
 		t += r.interval
 		// Add any missing values before the next point
-		for p.Time != t {
+		for rounded != t {
 			// Add in a NaN so we can skip it later.
 			r.y = append(r.y, math.NaN())
 			t += r.interval
@@ -482,7 +490,6 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 	forecasted := r.forecast(r.h, params)
 	var points []FloatPoint
 	if r.includeAllData {
-		start := r.points[0].Time
 		points = make([]FloatPoint, len(forecasted))
 		for i, v := range forecasted {
 			t := start + r.interval*(int64(i))
@@ -492,11 +499,10 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 			}
 		}
 	} else {
-		last := r.points[len(r.points)-1].Time
 		points = make([]FloatPoint, r.h)
 		forecasted := r.forecast(r.h, params)
 		for i, v := range forecasted[len(r.y):] {
-			t := last + r.interval*(int64(i)+1)
+			t := stop + r.interval*(int64(i)+1)
 			points[i] = FloatPoint{
 				Value: v,
 				Time:  t,

@@ -330,52 +330,59 @@ func TestParser_ParseStatement(t *testing.T) {
 		},
 		// holt_winters
 		{
-			s: `SELECT holt_winters(field1, 3, 1, 1h) FROM myseries;`,
+			s: fmt.Sprintf(`SELECT holt_winters(first(field1), 3, 1) FROM myseries WHERE time > '%s' GROUP BY time(1h);`, now.UTC().Format(time.RFC3339Nano)),
 			stmt: &influxql.SelectStatement{
 				IsRawQuery: false,
 				Fields: []*influxql.Field{
 					{Expr: &influxql.Call{
 						Name: "holt_winters",
 						Args: []influxql.Expr{
-							&influxql.VarRef{Val: "field1"}, &influxql.IntegerLiteral{Val: 3},
+							&influxql.Call{
+								Name: "first",
+								Args: []influxql.Expr{
+									&influxql.VarRef{Val: "field1"},
+								},
+							},
+							&influxql.IntegerLiteral{Val: 3},
 							&influxql.IntegerLiteral{Val: 1},
-							&influxql.DurationLiteral{Val: 1 * time.Hour},
 						},
 					}},
 				},
+				Dimensions: []*influxql.Dimension{
+					{
+						Expr: &influxql.Call{
+							Name: "time",
+							Args: []influxql.Expr{
+								&influxql.DurationLiteral{Val: 1 * time.Hour},
+							},
+						},
+					},
+				},
 				Sources: []influxql.Source{&influxql.Measurement{Name: "myseries"}},
+				Condition: &influxql.BinaryExpr{
+					Op:  influxql.GT,
+					LHS: &influxql.VarRef{Val: "time"},
+					RHS: &influxql.TimeLiteral{Val: now.UTC()},
+				},
 			},
 		},
 
 		{
-			s: `SELECT holt_winters_with_fit(field1, 3, 1, 1h) FROM myseries;`,
+			s: fmt.Sprintf(`SELECT holt_winters_with_fit(first(field1), 3, 1) FROM myseries WHERE time > '%s' GROUP BY time(1h);`, now.UTC().Format(time.RFC3339Nano)),
 			stmt: &influxql.SelectStatement{
 				IsRawQuery: false,
 				Fields: []*influxql.Field{
 					{Expr: &influxql.Call{
 						Name: "holt_winters_with_fit",
 						Args: []influxql.Expr{
-							&influxql.VarRef{Val: "field1"},
+							&influxql.Call{
+								Name: "first",
+								Args: []influxql.Expr{
+									&influxql.VarRef{Val: "field1"},
+								},
+							},
 							&influxql.IntegerLiteral{Val: 3},
 							&influxql.IntegerLiteral{Val: 1},
-							&influxql.DurationLiteral{Val: 1 * time.Hour},
-						}}},
-				},
-				Sources: []influxql.Source{&influxql.Measurement{Name: "myseries"}},
-			},
-		},
-		{
-			s: fmt.Sprintf(`SELECT holt_winters(field1, 3, 1, 1h) FROM myseries WHERE time < '%s' GROUP BY time(10d);`, now.UTC().Format(time.RFC3339Nano)),
-			stmt: &influxql.SelectStatement{
-				IsRawQuery: false,
-				Fields: []*influxql.Field{
-					{Expr: &influxql.Call{
-						Name: "holt_winters",
-						Args: []influxql.Expr{
-							&influxql.VarRef{Val: "field1"},
-							&influxql.IntegerLiteral{Val: 3},
-							&influxql.IntegerLiteral{Val: 1},
-							&influxql.DurationLiteral{Val: 1 * time.Hour},
 						}}},
 				},
 				Dimensions: []*influxql.Dimension{
@@ -383,20 +390,19 @@ func TestParser_ParseStatement(t *testing.T) {
 						Expr: &influxql.Call{
 							Name: "time",
 							Args: []influxql.Expr{
-								&influxql.DurationLiteral{Val: 10 * 24 * time.Hour},
+								&influxql.DurationLiteral{Val: 1 * time.Hour},
 							},
 						},
 					},
 				},
 				Sources: []influxql.Source{&influxql.Measurement{Name: "myseries"}},
 				Condition: &influxql.BinaryExpr{
-					Op:  influxql.LT,
+					Op:  influxql.GT,
 					LHS: &influxql.VarRef{Val: "time"},
 					RHS: &influxql.TimeLiteral{Val: now.UTC()},
 				},
 			},
 		},
-
 		{
 			s: fmt.Sprintf(`SELECT holt_winters(max(field1), 4, 5) FROM myseries WHERE time > '%s' GROUP BY time(1m)`, now.UTC().Format(time.RFC3339Nano)),
 			stmt: &influxql.SelectStatement{
@@ -438,13 +444,13 @@ func TestParser_ParseStatement(t *testing.T) {
 		},
 
 		{
-			s: fmt.Sprintf(`SELECT holt_winters(max(field1), 4, 5) FROM myseries WHERE time > '%s' GROUP BY time(1m)`, now.UTC().Format(time.RFC3339Nano)),
+			s: fmt.Sprintf(`SELECT holt_winters_with_fit(max(field1), 4, 5) FROM myseries WHERE time > '%s' GROUP BY time(1m)`, now.UTC().Format(time.RFC3339Nano)),
 			stmt: &influxql.SelectStatement{
 				IsRawQuery: false,
 				Fields: []*influxql.Field{
 					{
 						Expr: &influxql.Call{
-							Name: "holt_winters",
+							Name: "holt_winters_with_fit",
 							Args: []influxql.Expr{
 								&influxql.Call{
 									Name: "max",
@@ -2166,10 +2172,9 @@ func TestParser_ParseStatement(t *testing.T) {
 		{s: `SELECT moving_average(max(), 2) FROM myseries where time < now() and time > now() - 1d group by time(1h)`, err: `invalid number of arguments for max, expected 1, got 0`},
 		{s: `SELECT moving_average(percentile(value), 2) FROM myseries where time < now() and time > now() - 1d group by time(1h)`, err: `invalid number of arguments for percentile, expected 2, got 1`},
 		{s: `SELECT moving_average(mean(value), 2) FROM myseries where time < now() and time > now() - 1d`, err: `moving_average aggregate requires a GROUP BY interval`},
-		{s: `SELECT holt_winters(value) FROM myseries where time < now() and time > now() - 1d`, err: `invalid number of arguments for holt_winters, expected at least 3 but no more than 4, got 1`},
-		{s: `SELECT holt_winters(value, 10, 2) FROM myseries where time < now() and time > now() - 1d`, err: `must pass interval to holt_winters as 4th arg when not performing group by on aggregate`},
+		{s: `SELECT holt_winters(value) FROM myseries where time < now() and time > now() - 1d`, err: `invalid number of arguments for holt_winters, expected 3, got 1`},
+		{s: `SELECT holt_winters(value, 10, 2) FROM myseries where time < now() and time > now() - 1d`, err: `must use aggregate function with holt_winters`},
 		{s: `SELECT holt_winters(min(value), 10, 2) FROM myseries where time < now() and time > now() - 1d`, err: `holt_winters aggregate requires a GROUP BY interval`},
-		{s: `SELECT holt_winters(min(value), 10, 2, 1h) FROM myseries where time < now() and time > now() - 1d GROUP BY time(1h)`, err: `must not pass interval to holt_winters as 4th arg when performing group by on aggregate`},
 		{s: `SELECT field1 from myseries WHERE host =~ 'asd' LIMIT 1`, err: `found asd, expected regex at line 1, char 42`},
 		{s: `SELECT value > 2 FROM cpu`, err: `invalid operator > in SELECT clause at line 1, char 8; operator is intended for WHERE clause`},
 		{s: `SELECT value = 2 FROM cpu`, err: `invalid operator = in SELECT clause at line 1, char 8; operator is intended for WHERE clause`},
