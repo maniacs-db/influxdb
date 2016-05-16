@@ -343,15 +343,21 @@ type FloatHoltWintersReducer struct {
 	// Whether to include all data or only future values
 	includeFitData bool
 
+	// NelderMead optimizer
+	optim *neldermead.Optimizer
+	// Small difference bound for the optimizer
+	epsilon float64
+
 	y      []float64
 	points []FloatPoint
 }
 
 const (
-	defaultAlpha = 0.5
-	defaultBeta  = 0.5
-	defaultGamma = 0.5
-	defaultPhi   = 0.5
+	defaultAlpha   = 0.5
+	defaultBeta    = 0.5
+	defaultGamma   = 0.5
+	defaultPhi     = 0.5
+	defaultEpsilon = 1.0e-4
 )
 
 // NewFloatHoltWintersReducer creates a new FloatHoltWintersReducer.
@@ -370,6 +376,8 @@ func NewFloatHoltWintersReducer(h, m int, includeFitData bool, interval time.Dur
 		seasonal:       seasonal,
 		includeFitData: includeFitData,
 		interval:       int64(interval),
+		optim:          neldermead.New(),
+		epsilon:        defaultEpsilon,
 	}
 }
 
@@ -407,6 +415,7 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 	for _, p := range r.points[1:] {
 		rounded := r.roundTime(p.Time)
 		if rounded <= t {
+			// Drop values that occur for the same time bucket
 			continue
 		}
 		t += r.interval
@@ -430,8 +439,8 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 
 	// Starting guesses
 	// NOTE: Since these values are guesses
-	// in the cases where we were missing data can just skip
-	// the value and call it good.
+	// in the cases where we were missing data,
+	// we can just skip the value and call it good.
 
 	l_0 := 0.0
 	if r.seasonal {
@@ -481,10 +490,8 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 		parameters[i+o] = s[i]
 	}
 
-	// Determine best fit for the varios parameters
-	opt := neldermead.New()
-	epsilon := 1e-4
-	_, params := opt.Optimize(r.sse, parameters, epsilon, 1, r.constrain)
+	// Determine best fit for the various parameters
+	_, params := r.optim.Optimize(r.sse, parameters, r.epsilon, 1, r.constrain)
 
 	// Forecast
 	forecasted := r.forecast(r.h, params)
@@ -514,6 +521,7 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 	return points
 }
 
+// Using the recursive relations compute the next values
 func (r *FloatHoltWintersReducer) next(alpha, beta, gamma, phi, phi_h, y_t, l_tp, b_tp, s_tm, s_tmh float64) (y_th, l_t, b_t, s_t float64) {
 	l_t = alpha*(y_t/s_tm) + (1-alpha)*(l_tp+phi*b_tp)
 	b_t = beta*(l_t-l_tp) + (1-beta)*phi*b_tp
@@ -522,6 +530,7 @@ func (r *FloatHoltWintersReducer) next(alpha, beta, gamma, phi, phi_h, y_t, l_tp
 	return
 }
 
+// Forecast the data h points into the future.
 func (r *FloatHoltWintersReducer) forecast(h int, params []float64) []float64 {
 	y_t := r.y[0]
 
@@ -557,9 +566,9 @@ func (r *FloatHoltWintersReducer) forecast(h int, params []float64) []float64 {
 			stmh = seasonals[(t-m+hm+so)%m]
 		}
 		y_t, l_t, b_t, s_t = r.next(
-			params[0],
-			params[1],
-			params[2],
+			params[0], // alpha
+			params[1], // beta
+			params[2], // gamma
 			phi,
 			phi_h,
 			y_t,
@@ -580,7 +589,7 @@ func (r *FloatHoltWintersReducer) forecast(h int, params []float64) []float64 {
 	return forecasted
 }
 
-// Compute sum squared error given the parameters.
+// Compute sum squared error for the given parameters.
 func (r *FloatHoltWintersReducer) sse(params []float64) float64 {
 	sse := 0.0
 	forecasted := r.forecast(0, params)
