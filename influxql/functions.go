@@ -341,7 +341,7 @@ type FloatHoltWintersReducer struct {
 	interval int64
 
 	// Whether to include all data or only future values
-	includeAllData bool
+	includeFitData bool
 
 	y      []float64
 	points []FloatPoint
@@ -355,7 +355,7 @@ const (
 )
 
 // NewFloatHoltWintersReducer creates a new FloatHoltWintersReducer.
-func NewFloatHoltWintersReducer(h, m int, includeAllData bool, interval time.Duration) *FloatHoltWintersReducer {
+func NewFloatHoltWintersReducer(h, m int, includeFitData bool, interval time.Duration) *FloatHoltWintersReducer {
 	seasonal := true
 	if m < 2 {
 		seasonal = false
@@ -368,7 +368,7 @@ func NewFloatHoltWintersReducer(h, m int, includeAllData bool, interval time.Dur
 		h:              h,
 		m:              m,
 		seasonal:       seasonal,
-		includeAllData: includeAllData,
+		includeFitData: includeFitData,
 		interval:       int64(interval),
 	}
 }
@@ -489,7 +489,7 @@ func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
 	// Forecast
 	forecasted := r.forecast(r.h, params)
 	var points []FloatPoint
-	if r.includeAllData {
+	if r.includeFitData {
 		points = make([]FloatPoint, len(forecasted))
 		for i, v := range forecasted {
 			t := start + r.interval*(int64(i))
