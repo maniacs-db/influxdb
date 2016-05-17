@@ -1619,10 +1619,13 @@ func (s *SelectStatement) validateAggregates(tr targetRequirement) error {
 				} else if !ok {
 					return fmt.Errorf("must use aggregate function with %s", expr.Name)
 				}
-				for i, arg := range expr.Args[1:3] {
-					if _, ok := arg.(*IntegerLiteral); !ok {
-						return fmt.Errorf("expected integer argument as %dth arg in %s", i+1, expr.Name)
-					}
+				if arg, ok := expr.Args[1].(*IntegerLiteral); !ok {
+					return fmt.Errorf("expected integer argument as second arg in %s", expr.Name)
+				} else if arg.Val <= 0 {
+					return fmt.Errorf("second arg to %s must be greater than 0, got %d", expr.Name, arg.Val)
+				}
+				if _, ok := expr.Args[2].(*IntegerLiteral); !ok {
+					return fmt.Errorf("expected integer argument as third arg in %s", expr.Name)
 				}
 			default:
 				if err := s.validSelectWithAggregate(); err != nil {

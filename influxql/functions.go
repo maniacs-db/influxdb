@@ -403,12 +403,15 @@ func (r *FloatHoltWintersReducer) roundTime(t int64) int64 {
 }
 
 func (r *FloatHoltWintersReducer) Emit() []FloatPoint {
-	if l := len(r.points); l < 2 || r.seasonal && l < r.m {
+	if l := len(r.points); l < 2 || r.seasonal && l < r.m || r.h <= 0 {
 		return nil
 	}
 	// First fill in r.y with values and NaNs for missing values
 	start, stop := r.roundTime(r.points[0].Time), r.roundTime(r.points[len(r.points)-1].Time)
 	count := (stop - start) / r.interval
+	if count <= 0 {
+		return nil
+	}
 	r.y = make([]float64, 1, count)
 	r.y[0] = r.points[0].Value
 	t := r.roundTime(r.points[0].Time)
