@@ -12,7 +12,7 @@
 - [#6623](https://github.com/influxdata/influxdb/pull/6623): Speed up drop database
 - [#6519](https://github.com/influxdata/influxdb/issues/6519): Support cast syntax for selecting a specific type.
 - [#6654](https://github.com/influxdata/influxdb/pull/6654): Add new HTTP statistics to monitoring
-
+- [#4532](https://github.com/influxdata/influxdb/issues/4532): Support regex selection in SHOW TAG VALUES for the key.
 
 ### Bugfixes
 
